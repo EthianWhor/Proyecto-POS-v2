@@ -435,6 +435,12 @@ const refs = {
   cancelCategoryEditBtn: document.querySelector("#cancelCategoryEditBtn"),
   resetCategoryBtn: document.querySelector("#resetCategoryBtn"),
   categoryMessage: document.querySelector("#categoryMessage"),
+  confirmModal: document.querySelector("#confirmModal"),
+  confirmModalTitle: document.querySelector("#confirmModalTitle"),
+  confirmModalMessage: document.querySelector("#confirmModalMessage"),
+  closeConfirmModalBtn: document.querySelector("#closeConfirmModalBtn"),
+  confirmModalCancelBtn: document.querySelector("#confirmModalCancelBtn"),
+  confirmModalAcceptBtn: document.querySelector("#confirmModalAcceptBtn"),
   productModal: document.querySelector("#productModal"),
   productModalTitle: document.querySelector("#productModalTitle"),
   closeProductModalBtn: document.querySelector("#closeProductModalBtn"),
@@ -453,6 +459,39 @@ const refs = {
   stockRow: document.querySelector("#stockRow"),
   productMessage: document.querySelector("#productMessage"),
 };
+
+
+const confirmModalState = {
+  resolve: null,
+};
+
+function askForConfirmation({
+  title = "Confirmar acción",
+  message = "¿Deseas continuar?",
+  confirmText = "Confirmar",
+  cancelText = "Cancelar",
+  confirmClass = "btn-danger",
+} = {}) {
+  refs.confirmModalTitle.textContent = title;
+  refs.confirmModalMessage.textContent = message;
+  refs.confirmModalAcceptBtn.textContent = confirmText;
+  refs.confirmModalCancelBtn.textContent = cancelText;
+  refs.confirmModalAcceptBtn.className = confirmClass;
+  refs.confirmModal.classList.remove("hidden");
+
+  return new Promise((resolve) => {
+    confirmModalState.resolve = resolve;
+  });
+}
+
+function closeConfirmModal(answer = false) {
+  refs.confirmModal.classList.add("hidden");
+  if (confirmModalState.resolve) {
+    const resolve = confirmModalState.resolve;
+    confirmModalState.resolve = null;
+    resolve(answer);
+  }
+}
 
 function showView(viewName) {
   Object.entries(refs.views).forEach(([name, el]) => {
@@ -1121,7 +1160,11 @@ async function submitProductForm(event) {
 async function deleteProduct(productId) {
   const product = findProductById(productId);
   if (!product) return;
-  const ok = confirm(`¿Eliminar ${product.nombre}?`);
+  const ok = await askForConfirmation({
+    title: "Eliminar producto",
+    message: `¿Seguro que deseas eliminar ${product.nombre}?`,
+    confirmText: "Eliminar",
+  });
   if (!ok) return;
 
   try {
@@ -1428,7 +1471,11 @@ async function submitClientForm(event) {
 async function deleteClient(clientId) {
   const client = state.clients.find((item) => item.id === clientId);
   if (!client) return;
-  const ok = confirm(`¿Eliminar ${client.nombre}?`);
+  const ok = await askForConfirmation({
+    title: "Eliminar cliente",
+    message: `¿Seguro que deseas eliminar ${client.nombre}?`,
+    confirmText: "Eliminar",
+  });
   if (!ok) return;
   try {
     await apiPost("clientes", { id: client.id, nombre: DELETED_MARK, telefono: client.telefono, correo: client.correo });
@@ -1524,7 +1571,11 @@ async function submitProviderForm(event) {
 async function deleteProvider(providerId) {
   const provider = state.providers.find((item) => item.id === providerId);
   if (!provider) return;
-  const ok = confirm(`¿Eliminar ${provider.nombre}?`);
+  const ok = await askForConfirmation({
+    title: "Eliminar proveedor",
+    message: `¿Seguro que deseas eliminar ${provider.nombre}?`,
+    confirmText: "Eliminar",
+  });
   if (!ok) return;
   try {
     await apiPost("proveedores", {
@@ -1623,7 +1674,11 @@ async function submitCategoryForm(event) {
 async function deleteCategory(categoryId) {
   const category = state.categories.find((item) => item.id === categoryId);
   if (!category) return;
-  const ok = confirm(`¿Eliminar ${category.nombre}?`);
+  const ok = await askForConfirmation({
+    title: "Eliminar categoría",
+    message: `¿Seguro que deseas eliminar ${category.nombre}?`,
+    confirmText: "Eliminar",
+  });
   if (!ok) return;
   try {
     await apiPost("categorias", {
@@ -1698,16 +1753,25 @@ function attachEvents() {
   refs.paymentMethod.addEventListener("change", updateCashUI);
   refs.cashReceived.addEventListener("input", updateCashChange);
   refs.saveOpenSaleBtn.addEventListener("click", saveOpenSale);
-  refs.discardSaleBtn.addEventListener("click", () => {
-    const ok = confirm("¿Descartar la venta actual?");
+  refs.discardSaleBtn.addEventListener("click", async () => {
+    const ok = await askForConfirmation({
+      title: "Descartar venta",
+      message: "¿Deseas descartar la venta actual?",
+      confirmText: "Descartar",
+    });
     if (!ok) return;
     resetCurrentSale();
   });
   refs.confirmSaleBtn.addEventListener("click", confirmSale);
-  refs.newSaleBtn.addEventListener("click", () => {
+  refs.newSaleBtn.addEventListener("click", async () => {
     const hasItems = state.currentSale.items.length > 0;
     if (hasItems) {
-      const ok = confirm("Esto limpiará la venta actual. ¿Continuar?");
+      const ok = await askForConfirmation({
+        title: "Nueva venta",
+        message: "Esto limpiará la venta actual. ¿Deseas continuar?",
+        confirmText: "Continuar",
+        confirmClass: "btn-secondary",
+      });
       if (!ok) return;
     }
     resetCurrentSale();
@@ -1736,6 +1800,14 @@ function attachEvents() {
     }
   });
 
+  refs.closeConfirmModalBtn.addEventListener("click", () => closeConfirmModal(false));
+  refs.confirmModalCancelBtn.addEventListener("click", () => closeConfirmModal(false));
+  refs.confirmModalAcceptBtn.addEventListener("click", () => closeConfirmModal(true));
+  refs.confirmModal.addEventListener("click", (event) => {
+    if (event.target.dataset.closeConfirmModal === "true") {
+      closeConfirmModal(false);
+    }
+  });
   refs.productSearchInput.addEventListener("input", renderProductsView);
   refs.openCreateProductBtn.addEventListener("click", () => openProductModal());
   refs.closeProductModalBtn.addEventListener("click", closeProductModal);
@@ -1771,6 +1843,17 @@ function attachEvents() {
   refs.categoryForm.addEventListener("submit", submitCategoryForm);
   refs.cancelCategoryEditBtn.addEventListener("click", resetCategoryForm);
   refs.resetCategoryBtn.addEventListener("click", resetCategoryForm);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!refs.confirmModal.classList.contains("hidden")) {
+      closeConfirmModal(false);
+      return;
+    }
+    if (!refs.productModal.classList.contains("hidden")) {
+      closeProductModal();
+    }
+  });
 }
 
 async function initApp() {

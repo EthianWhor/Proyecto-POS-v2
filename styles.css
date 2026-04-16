@@ -513,3 +513,18 @@ select {
     flex-direction: column;
   }
 }
+
+
+.modal__content--sm {
+  width: min(100%, 460px);
+}
+
+.confirm-modal__message {
+  margin: 0 0 18px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.confirm-modal__actions {
+  justify-content: flex-end;
+}

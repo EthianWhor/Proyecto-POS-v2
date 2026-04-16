@@ -380,6 +380,22 @@
     </div>
   </section>
 
+
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal__backdrop" data-close-confirm-modal="true"></div>
+    <div class="modal__content modal__content--sm">
+      <div class="panel__header">
+        <h3 id="confirmModalTitle">Confirmar acción</h3>
+        <button id="closeConfirmModalBtn" type="button" class="btn-secondary">Cerrar</button>
+      </div>
+      <p id="confirmModalMessage" class="confirm-modal__message">¿Deseas continuar?</p>
+      <div class="actions confirm-modal__actions">
+        <button id="confirmModalCancelBtn" type="button" class="btn-secondary">Cancelar</button>
+        <button id="confirmModalAcceptBtn" type="button" class="btn-danger">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="productModal" class="modal hidden">
     <div class="modal__backdrop" data-close-product-modal="true"></div>
     <div class="modal__content">
