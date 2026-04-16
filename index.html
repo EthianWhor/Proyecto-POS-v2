@@ -416,6 +416,19 @@
             <input id="pBarcode" type="text" />
           </div>
         </div>
+        <div class="form-row">
+          <label for="pImageUrl">Foto del producto</label>
+          <input id="pImageUrl" type="text" placeholder="Pega una URL o usa el campo de abajo para subir una imagen" />
+        </div>
+        <div class="form-row">
+          <label for="pImageFile">Subir foto</label>
+          <input id="pImageFile" type="file" accept="image/*" />
+          <small class="muted">La imagen subida se guardará junto con el producto.</small>
+        </div>
+        <div class="form-row">
+          <label>Vista previa</label>
+          <div id="productImagePreview" class="product-image-preview">Sin foto</div>
+        </div>
         <div class="form-row checkbox-row">
           <label>
             <input id="pTrack" type="checkbox" />

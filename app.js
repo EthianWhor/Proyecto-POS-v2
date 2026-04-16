@@ -1,5 +1,21 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbxtBvNJ-zjAAro3MRHrtpr90rKZ1I9OitxoqgF9wZqkMj8M8xtZbq2rLSAbh9HAwnY/exec";
 const DELETED_MARK = "__deleted__";
+const LEGACY_PRODUCT_IMAGES = {
+  "cuaderno argollado": "Imagenes/cuaderno.png",
+  "lapicero azul": "Imagenes/lapicero.jpg",
+  "resaltador amarillo": "Imagenes/resaltador.jpg",
+  "regla 30 cm": "Imagenes/regla.jpg",
+  "borrador": "Imagenes/borrador.jpg",
+  "lapiz": "Imagenes/lapiz.png",
+  "marcador permanente": "Imagenes/marcador.png",
+  "tijeras": "Imagenes/tijeras.jpg",
+  "pegastick": "Imagenes/pegastick.jpg",
+  "carpeta": "Imagenes/carpeta.jpg",
+  "calculadora": "Imagenes/calculadora.jpg",
+  "post-it": "Imagenes/postit.jpg",
+  "post it": "Imagenes/postit.jpg",
+};
+
 
 function createEmptySale() {
   return {
@@ -74,6 +90,15 @@ function escapeHtml(value) {
 
 function normalizeText(value, fallback = "") {
   return String(value ?? fallback).trim();
+}
+
+function normalizeKey(value) {
+  return normalizeText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function toNumber(value, fallback = 0) {
@@ -189,6 +214,7 @@ function normalizeProduct(raw) {
     seguimientoInventario: toBoolean(raw.seguimientoInventario),
     codigoInterno: normalizeText(raw.codigoInterno),
     codigoBarras: normalizeText(raw.codigoBarras),
+    imagenUrl: normalizeText(raw.imagenUrl || raw.imagen || raw.foto || raw.imageUrl),
   };
 }
 
@@ -249,6 +275,24 @@ function getCategoryName(categoryId) {
 
 function findClientById(clientId) {
   return state.clients.find((item) => item.id === clientId);
+}
+
+function resolveProductImage(product) {
+  const storedImage = normalizeText(product?.imagenUrl);
+  if (storedImage) return storedImage;
+  const byName = LEGACY_PRODUCT_IMAGES[normalizeKey(product?.nombre)];
+  if (byName) return byName;
+  const byCode = LEGACY_PRODUCT_IMAGES[normalizeKey(product?.codigoInterno)];
+  if (byCode) return byCode;
+  return "";
+}
+
+function renderProductImage(product, altText = "") {
+  const imageUrl = resolveProductImage(product);
+  if (!imageUrl) {
+    return '<div class="product-card__image product-card__image--placeholder">Sin foto</div>';
+  }
+  return `<img class="product-card__image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(altText || product?.nombre || "Producto")}" loading="lazy" onerror="this.outerHTML='&lt;div class=&quot;product-card__image product-card__image--placeholder&quot;&gt;Sin foto&lt;/div&gt;'" />`;
 }
 
 function isGeneralClient(clientId) {
@@ -401,6 +445,9 @@ const refs = {
   pCost: document.querySelector("#pCost"),
   pCode: document.querySelector("#pCode"),
   pBarcode: document.querySelector("#pBarcode"),
+  pImageUrl: document.querySelector("#pImageUrl"),
+  pImageFile: document.querySelector("#pImageFile"),
+  productImagePreview: document.querySelector("#productImagePreview"),
   pTrack: document.querySelector("#pTrack"),
   pStock: document.querySelector("#pStock"),
   stockRow: document.querySelector("#stockRow"),
@@ -781,6 +828,7 @@ async function applyInventoryFromSale(items) {
       seguimientoInventario: product.seguimientoInventario,
       codigoInterno: product.codigoInterno,
       codigoBarras: product.codigoBarras,
+      imagenUrl: product.imagenUrl,
     }));
   });
   if (requests.length) {
@@ -926,6 +974,7 @@ function renderProductsView() {
   refs.productsList.innerHTML = products.length
     ? products.map((product) => `
       <article class="product-card">
+        ${renderProductImage(product, product.nombre)}
         <div class="product-card__meta">
           <h3>${escapeHtml(product.nombre)}</h3>
           <span class="muted">${escapeHtml(product.codigoInterno || product.id)}</span>
@@ -953,6 +1002,7 @@ function openProductModal(productId = null) {
   populateProductCategoryOptions();
   state.ui.productModalEditingId = productId;
   clearMessage(refs.productMessage);
+  refs.pImageFile.value = "";
 
   if (!productId) {
     refs.productModalTitle.textContent = "Crear producto";
@@ -962,8 +1012,10 @@ function openProductModal(productId = null) {
     refs.pCost.value = "";
     refs.pCode.value = "";
     refs.pBarcode.value = "";
+    refs.pImageUrl.value = "";
     refs.pTrack.checked = true;
     refs.pStock.value = "0";
+    updateProductImagePreview("");
   } else {
     const product = findProductById(productId);
     if (!product) return;
@@ -974,8 +1026,10 @@ function openProductModal(productId = null) {
     refs.pCost.value = String(product.costo);
     refs.pCode.value = product.codigoInterno;
     refs.pBarcode.value = product.codigoBarras;
+    refs.pImageUrl.value = resolveProductImage(product);
     refs.pTrack.checked = product.seguimientoInventario;
     refs.pStock.value = String(product.stock);
+    updateProductImagePreview(refs.pImageUrl.value);
   }
 
   toggleStockRow();
@@ -990,6 +1044,36 @@ function toggleStockRow() {
   refs.stockRow.classList.toggle("hidden", !refs.pTrack.checked);
 }
 
+function updateProductImagePreview(url) {
+  const imageUrl = normalizeText(url);
+  refs.productImagePreview.style.backgroundImage = imageUrl ? `url("${imageUrl.replace(/"/g, '\"')}")` : "";
+  refs.productImagePreview.classList.toggle("has-image", Boolean(imageUrl));
+  refs.productImagePreview.textContent = imageUrl ? "Foto del producto" : "Sin foto";
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("No fue posible leer la imagen seleccionada."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleProductImageFileChange(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    refs.pImageUrl.value = dataUrl;
+    updateProductImagePreview(dataUrl);
+    setMessage(refs.productMessage, "Foto cargada correctamente. Guarda el producto para aplicar el cambio.", "info");
+  } catch (error) {
+    setMessage(refs.productMessage, error.message, "error");
+  }
+}
+
 function buildProductPayload() {
   const editingId = state.ui.productModalEditingId;
   return {
@@ -1002,6 +1086,7 @@ function buildProductPayload() {
     seguimientoInventario: refs.pTrack.checked,
     codigoInterno: normalizeText(refs.pCode.value) || (editingId || buildId("COD")),
     codigoBarras: normalizeText(refs.pBarcode.value),
+    imagenUrl: normalizeText(refs.pImageUrl.value),
   };
 }
 
@@ -1050,6 +1135,7 @@ async function deleteProduct(productId) {
       seguimientoInventario: product.seguimientoInventario,
       codigoInterno: product.codigoInterno,
       codigoBarras: product.codigoBarras,
+      imagenUrl: product.imagenUrl,
     });
     await refreshProducts();
     state.currentSale.items = state.currentSale.items.filter((item) => item.productId !== productId);
@@ -1079,6 +1165,7 @@ function renderPurchaseProducts() {
   refs.purchaseProducts.innerHTML = products.length
     ? products.map((product) => `
       <article class="product-card">
+        ${renderProductImage(product, product.nombre)}
         <div class="product-card__meta">
           <h3>${escapeHtml(product.nombre)}</h3>
           <span class="muted">${escapeHtml(product.codigoInterno || product.id)}</span>
@@ -1234,6 +1321,7 @@ async function applyInventoryFromPurchase(items) {
       seguimientoInventario: product.seguimientoInventario,
       codigoInterno: product.codigoInterno,
       codigoBarras: product.codigoBarras,
+      imagenUrl: product.imagenUrl,
     }));
   });
   if (requests.length) {
