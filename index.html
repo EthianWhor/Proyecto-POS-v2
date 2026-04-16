@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>POS Papel y Luna - MVP 2</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>Papelería Papel y Luna</h1>
+      <p class="subtitle">MVP 2 · Google Sheets + Apps Script</p>
+    </div>
+    <div class="header-total">
+      <span>Venta actual</span>
+      <strong id="headerSaleTotal">$0</strong>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <button id="goSaleBtn" type="button">Nueva venta</button>
+    <button id="goSalesBtn" type="button">Ventas</button>
+    <button id="goProductsBtn" type="button">Productos</button>
+    <button id="goPurchasesBtn" type="button">Compras</button>
+    <button id="goClientsBtn" type="button">Clientes</button>
+    <button id="goProvidersBtn" type="button">Proveedores</button>
+    <button id="goCategoriesBtn" type="button">Categorías</button>
+  </nav>
+
+  <div class="page-status hidden" id="pageStatus"></div>
+
+  <section id="saleView" class="view">
+    <div class="section-title-row">
+      <div>
+        <h2>Nueva venta</h2>
+        <p class="muted">Productos y clientes cargados desde la API.</p>
+      </div>
+      <div class="actions compact">
+        <button id="saveOpenSaleBtn" type="button" class="btn-secondary">Guardar abierta</button>
+        <button id="discardSaleBtn" type="button" class="btn-danger">Descartar</button>
+      </div>
+    </div>
+
+    <div class="grid-2 sale-layout">
+      <div class="panel">
+        <div class="panel__header panel__header--stack">
+          <div>
+            <h3>Catálogo</h3>
+            <p class="muted">Sin datos quemados. Todo sale de Google Sheets.</p>
+          </div>
+          <input id="saleSearchInput" type="text" placeholder="Buscar por nombre o código..." />
+        </div>
+        <div id="saleProducts" class="cards-grid"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel__header panel__header--stack gap-sm">
+          <div class="grid-2 grid-2--tight">
+            <div class="form-row">
+              <label for="saleClientSelect">Cliente</label>
+              <select id="saleClientSelect"></select>
+            </div>
+            <div class="form-row">
+              <label for="paymentMethod">Método de pago</label>
+              <select id="paymentMethod">
+                <option value="Efectivo">Efectivo</option>
+                <option value="Nequi">Nequi</option>
+                <option value="Debito">Debito</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <p id="emptySale" class="muted">No hay productos agregados.</p>
+        <div id="saleCart" class="stack-list"></div>
+
+        <div class="totals">
+          <div class="totals__row">
+            <span>Total</span>
+            <strong id="saleTotal">$0</strong>
+          </div>
+        </div>
+
+        <div id="cashFields" class="pay-box">
+          <div class="form-row">
+            <label for="cashReceived">Recibido (efectivo)</label>
+            <input id="cashReceived" type="number" min="0" step="100" placeholder="0" />
+          </div>
+          <div class="totals__row">
+            <span>Cambio</span>
+            <strong id="cashChange">$0</strong>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="confirmSaleBtn" type="button">Confirmar venta</button>
+          <button id="newSaleBtn" type="button" class="btn-secondary">Nueva venta</button>
+        </div>
+        <p id="saleMessage" class="message hidden"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="saleConfirmationView" class="view hidden">
+    <h2>Venta confirmada</h2>
+    <div class="panel">
+      <p id="confirmationText"></p>
+      <div class="actions">
+        <button id="confirmationNewSaleBtn" type="button">Nueva venta</button>
+        <button id="confirmationInvoiceBtn" type="button" class="btn-secondary">Ver factura</button>
+        <button id="confirmationHistoryBtn" type="button" class="btn-secondary">Ir a ventas</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="salesView" class="view hidden">
+    <div class="section-title-row">
+      <div>
+        <h2>Ventas</h2>
+        <p class="muted">Incluye ventas abiertas y cerradas.</p>
+      </div>
+    </div>
+
+    <div class="panel filters-panel">
+      <div class="grid-2 grid-2--tight">
+        <div class="form-row">
+          <label for="salesSearchInput">Buscar</label>
+          <input id="salesSearchInput" type="text" placeholder="ID o cliente" />
+        </div>
+        <div class="form-row">
+          <label for="salesStatusFilter">Estado</label>
+          <select id="salesStatusFilter">
+            <option value="todos">Todos</option>
+            <option value="abierta">Abiertas</option>
+            <option value="cerrada">Cerradas</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <p id="emptySales" class="muted">Aún no hay ventas registradas.</p>
+    <div id="salesList" class="list"></div>
+  </section>
+
+  <section id="invoiceView" class="view hidden">
+    <div class="invoice-actions">
+      <button id="invoiceBackBtn" type="button" class="btn-secondary">Volver</button>
+    </div>
+    <div id="invoiceContainer" class="invoice"></div>
+  </section>
+
+  <section id="productsView" class="view hidden">
+    <div class="section-title-row">
+      <div>
+        <h2>Productos</h2>
+        <p class="muted">CRUD básico con integración API.</p>
+      </div>
+      <div class="actions compact">
+        <button id="openCreateProductBtn" type="button">Nuevo producto</button>
+      </div>
+    </div>
+
+    <div class="panel filters-panel">
+      <div class="form-row">
+        <label for="productSearchInput">Buscar</label>
+        <input id="productSearchInput" type="text" placeholder="Nombre o código" />
+      </div>
+    </div>
+
+    <div id="productsList" class="cards-grid"></div>
+    <p id="productsMessage" class="message hidden"></p>
+  </section>
+
+  <section id="purchasesView" class="view hidden">
+    <div class="section-title-row">
+      <div>
+        <h2>Compras</h2>
+        <p class="muted">Registro de compras enviado a la API.</p>
+      </div>
+    </div>
+
+    <div class="grid-2 purchase-layout">
+      <div class="panel">
+        <div class="panel__header panel__header--stack">
+          <div>
+            <h3>Agregar productos</h3>
+          </div>
+          <input id="purchaseSearchInput" type="text" placeholder="Buscar producto..." />
+        </div>
+        <div id="purchaseProducts" class="cards-grid"></div>
+      </div>
+
+      <div class="panel">
+        <div class="grid-2 grid-2--tight">
+          <div class="form-row">
+            <label for="purchaseProviderSelect">Proveedor</label>
+            <select id="purchaseProviderSelect"></select>
+          </div>
+          <div class="form-row">
+            <label for="purchaseMethodSelect">Método de pago</label>
+            <select id="purchaseMethodSelect">
+              <option value="Efectivo">Efectivo</option>
+              <option value="Nequi">Nequi</option>
+              <option value="Consignacion">Consignacion</option>
+            </select>
+          </div>
+        </div>
+
+        <p id="emptyPurchase" class="muted">No hay productos agregados a la compra.</p>
+        <div id="purchaseCart" class="stack-list"></div>
+
+        <div class="totals">
+          <div class="totals__row">
+            <span>Total compra</span>
+            <strong id="purchaseTotal">$0</strong>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="savePurchaseBtn" type="button">Guardar compra</button>
+          <button id="resetPurchaseBtn" type="button" class="btn-secondary">Limpiar</button>
+        </div>
+        <p id="purchaseMessage" class="message hidden"></p>
+      </div>
+    </div>
+
+    <div class="panel history-panel">
+      <h3>Historial de compras</h3>
+      <p id="emptyPurchases" class="muted">Aún no hay compras registradas.</p>
+      <div id="purchasesList" class="list"></div>
+    </div>
+  </section>
+
+  <section id="clientsView" class="view hidden">
+    <div class="section-title-row">
+      <div>
+        <h2>Clientes</h2>
+        <p class="muted">Listado, creación, edición y eliminación.</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel__header panel__header--stack">
+          <h3>Listado</h3>
+          <input id="clientSearchInput" type="text" placeholder="Buscar cliente" />
+        </div>
+        <div id="clientsList" class="stack-list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel__header">
+          <h3 id="clientFormTitle">Crear cliente</h3>
+          <button id="cancelClientEditBtn" type="button" class="btn-secondary hidden">Cancelar</button>
+        </div>
+        <form id="clientForm">
+          <div class="form-row">
+            <label for="clientName">Nombre *</label>
+            <input id="clientName" type="text" required />
+          </div>
+          <div class="form-row">
+            <label for="clientPhone">Teléfono</label>
+            <input id="clientPhone" type="text" />
+          </div>
+          <div class="form-row">
+            <label for="clientEmail">Correo</label>
+            <input id="clientEmail" type="email" />
+          </div>
+          <div class="actions">
+            <button type="submit">Guardar</button>
+            <button id="resetClientBtn" type="button" class="btn-secondary">Limpiar</button>
+          </div>
+          <p id="clientMessage" class="message hidden"></p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section id="providersView" class="view hidden">
+    <div class="section-title-row">
+      <div>
+        <h2>Proveedores</h2>
+        <p class="muted">Gestión básica de proveedores.</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel__header panel__header--stack">
+          <h3>Listado</h3>
+          <input id="providerSearchInput" type="text" placeholder="Buscar proveedor" />
+        </div>
+        <div id="providersList" class="stack-list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel__header">
+          <h3 id="providerFormTitle">Crear proveedor</h3>
+          <button id="cancelProviderEditBtn" type="button" class="btn-secondary hidden">Cancelar</button>
+        </div>
+        <form id="providerForm">
+          <div class="form-row">
+            <label for="providerName">Nombre *</label>
+            <input id="providerName" type="text" required />
+          </div>
+          <div class="form-row">
+            <label for="providerNit">NIT *</label>
+            <input id="providerNit" type="text" required />
+          </div>
+          <div class="form-row">
+            <label for="providerPhone">Teléfono</label>
+            <input id="providerPhone" type="text" />
+          </div>
+          <div class="form-row">
+            <label for="providerEmail">Correo</label>
+            <input id="providerEmail" type="email" />
+          </div>
+          <div class="actions">
+            <button type="submit">Guardar</button>
+            <button id="resetProviderBtn" type="button" class="btn-secondary">Limpiar</button>
+          </div>
+          <p id="providerMessage" class="message hidden"></p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section id="categoriesView" class="view hidden">
+    <div class="section-title-row">
+      <div>
+        <h2>Categorías</h2>
+        <p class="muted">Gestión básica de categorías.</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel__header panel__header--stack">
+          <h3>Listado</h3>
+          <input id="categorySearchInput" type="text" placeholder="Buscar categoría" />
+        </div>
+        <div id="categoriesList" class="stack-list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel__header">
+          <h3 id="categoryFormTitle">Crear categoría</h3>
+          <button id="cancelCategoryEditBtn" type="button" class="btn-secondary hidden">Cancelar</button>
+        </div>
+        <form id="categoryForm">
+          <div class="form-row">
+            <label for="categoryName">Nombre *</label>
+            <input id="categoryName" type="text" required />
+          </div>
+          <div class="form-row">
+            <label for="categoryColor">Color</label>
+            <input id="categoryColor" type="color" value="#4F46E5" />
+          </div>
+          <div class="form-row">
+            <label for="categoryIcon">Ícono</label>
+            <input id="categoryIcon" type="text" placeholder="pen, notebook, ruler..." />
+          </div>
+          <div class="actions">
+            <button type="submit">Guardar</button>
+            <button id="resetCategoryBtn" type="button" class="btn-secondary">Limpiar</button>
+          </div>
+          <p id="categoryMessage" class="message hidden"></p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <div id="productModal" class="modal hidden">
+    <div class="modal__backdrop" data-close-product-modal="true"></div>
+    <div class="modal__content">
+      <div class="panel__header">
+        <h3 id="productModalTitle">Producto</h3>
+        <button id="closeProductModalBtn" type="button" class="btn-secondary">Cerrar</button>
+      </div>
+      <form id="productForm">
+        <div class="form-row">
+          <label for="pName">Nombre *</label>
+          <input id="pName" type="text" required />
+        </div>
+        <div class="form-row">
+          <label for="pCategory">Categoría *</label>
+          <select id="pCategory" required></select>
+        </div>
+        <div class="grid-2 grid-2--tight">
+          <div class="form-row">
+            <label for="pPrice">Precio de venta *</label>
+            <input id="pPrice" type="number" min="0" step="100" required />
+          </div>
+          <div class="form-row">
+            <label for="pCost">Costo *</label>
+            <input id="pCost" type="number" min="0" step="100" required />
+          </div>
+        </div>
+        <div class="grid-2 grid-2--tight">
+          <div class="form-row">
+            <label for="pCode">Código interno</label>
+            <input id="pCode" type="text" />
+          </div>
+          <div class="form-row">
+            <label for="pBarcode">Código de barras</label>
+            <input id="pBarcode" type="text" />
+          </div>
+        </div>
+        <div class="form-row checkbox-row">
+          <label>
+            <input id="pTrack" type="checkbox" />
+            Seguimiento de inventario
+          </label>
+        </div>
+        <div class="form-row" id="stockRow">
+          <label for="pStock">Stock</label>
+          <input id="pStock" type="number" min="0" step="1" value="0" />
+        </div>
+        <div class="actions">
+          <button type="submit">Guardar producto</button>
+        </div>
+        <p id="productMessage" class="message hidden"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
