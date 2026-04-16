@@ -91,6 +91,11 @@ function toBoolean(value) {
   return normalized === "true" || normalized === "si" || normalized === "sí" || normalized === "1";
 }
 
+function normalizeSalePaymentMethod(value) {
+  const normalized = normalizeText(value, "Efectivo");
+  return normalized === "Debito" ? "Debe" : (normalized || "Efectivo");
+}
+
 function parseItemsJson(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -188,13 +193,18 @@ function normalizeProduct(raw) {
 }
 
 function normalizeSale(raw) {
+  const metodoPago = normalizeSalePaymentMethod(raw.metodoPago);
+  const total = nonNegative(raw.total);
   return {
     id: normalizeText(raw.id),
     fecha: normalizeText(raw.fecha),
     clienteId: normalizeText(raw.clienteId),
-    metodoPago: normalizeText(raw.metodoPago, "Efectivo") || "Efectivo",
+    metodoPago,
     estado: normalizeText(raw.estado, "cerrada") || "cerrada",
-    total: nonNegative(raw.total),
+    total,
+    saldoPendiente: raw.saldoPendiente === undefined || raw.saldoPendiente === null || raw.saldoPendiente === ""
+      ? (metodoPago === "Debe" ? total : 0)
+      : nonNegative(raw.saldoPendiente),
     items: parseItemsJson(raw.itemsJson),
   };
 }
@@ -237,9 +247,18 @@ function getCategoryName(categoryId) {
   return category ? category.nombre : "Sin categoría";
 }
 
+function findClientById(clientId) {
+  return state.clients.find((item) => item.id === clientId);
+}
+
+function isGeneralClient(clientId) {
+  const client = findClientById(clientId);
+  return Boolean(client) && client.nombre.trim().toLowerCase() === "cliente general";
+}
+
 function getClientName(clientId) {
   if (!clientId) return "Sin cliente";
-  const client = state.clients.find((item) => item.id === clientId);
+  const client = findClientById(clientId);
   return client ? client.nombre : clientId;
 }
 
@@ -300,10 +319,13 @@ const refs = {
   saleSearchInput: document.querySelector("#saleSearchInput"),
   saleProducts: document.querySelector("#saleProducts"),
   saleClientSelect: document.querySelector("#saleClientSelect"),
+  openQuickClientBtn: document.querySelector("#openQuickClientBtn"),
   saleCart: document.querySelector("#saleCart"),
   emptySale: document.querySelector("#emptySale"),
   saleTotal: document.querySelector("#saleTotal"),
   paymentMethod: document.querySelector("#paymentMethod"),
+  debtFields: document.querySelector("#debtFields"),
+  debtPending: document.querySelector("#debtPending"),
   cashFields: document.querySelector("#cashFields"),
   cashReceived: document.querySelector("#cashReceived"),
   cashChange: document.querySelector("#cashChange"),
@@ -616,23 +638,37 @@ function renderSaleCart() {
 }
 
 function updateCashUI() {
-  state.currentSale.paymentMethod = refs.paymentMethod.value;
+  state.currentSale.paymentMethod = normalizeSalePaymentMethod(refs.paymentMethod.value);
   const isCash = state.currentSale.paymentMethod === "Efectivo";
+  const isDebt = state.currentSale.paymentMethod === "Debe";
+
+  if (isDebt && isGeneralClient(refs.saleClientSelect.value || state.currentSale.clientId)) {
+    state.currentSale.clientId = "";
+    refs.saleClientSelect.value = "";
+    setMessage(refs.saleMessage, "Para ventas con método Debe debes seleccionar o crear un cliente diferente de Cliente General.", "info");
+  }
+
   refs.cashFields.classList.toggle("hidden", !isCash);
+  refs.debtFields.classList.toggle("hidden", !isDebt);
   updateCashChange();
 }
 
 function updateCashChange() {
   const total = getSaleTotal();
-  if (state.currentSale.paymentMethod !== "Efectivo") {
+  const isCash = state.currentSale.paymentMethod === "Efectivo";
+  const isDebt = state.currentSale.paymentMethod === "Debe";
+
+  if (!isCash) {
     state.currentSale.cashReceived = 0;
     state.currentSale.change = 0;
     refs.cashChange.textContent = formatCOP(0);
-    return;
+  } else {
+    state.currentSale.cashReceived = nonNegative(refs.cashReceived.value);
+    state.currentSale.change = Math.max(0, state.currentSale.cashReceived - total);
+    refs.cashChange.textContent = formatCOP(state.currentSale.change);
   }
-  state.currentSale.cashReceived = nonNegative(refs.cashReceived.value);
-  state.currentSale.change = Math.max(0, state.currentSale.cashReceived - total);
-  refs.cashChange.textContent = formatCOP(state.currentSale.change);
+
+  refs.debtPending.textContent = formatCOP(isDebt ? total : 0);
 }
 
 function buildSalePayload(status) {
@@ -645,14 +681,17 @@ function buildSalePayload(status) {
     subtotal: item.cantidad * item.precio,
   }));
   const total = items.reduce((acc, item) => acc + item.subtotal, 0);
+  const metodoPago = normalizeSalePaymentMethod(state.currentSale.paymentMethod);
+  const saldoPendiente = status === "cerrada" && metodoPago === "Debe" ? total : 0;
 
   return {
     id: saleId,
     fecha: state.currentSale.fecha || new Date().toISOString(),
     clienteId: state.currentSale.clientId || "",
-    metodoPago: state.currentSale.paymentMethod,
+    metodoPago,
     estado: status,
     total,
+    saldoPendiente,
     itemsJson: items,
   };
 }
@@ -672,6 +711,12 @@ function validateSaleForClose() {
   }
   if (state.currentSale.paymentMethod === "Efectivo" && state.currentSale.cashReceived < getSaleTotal()) {
     return "El efectivo recibido es insuficiente.";
+  }
+  if (state.currentSale.paymentMethod === "Debe" && !state.currentSale.clientId) {
+    return "Si el método de pago es Debe, debes seleccionar o crear un cliente antes de cerrar la venta.";
+  }
+  if (state.currentSale.paymentMethod === "Debe" && isGeneralClient(state.currentSale.clientId)) {
+    return "Si el método de pago es Debe, no puedes usar Cliente General. Debes seleccionar o crear un cliente específico.";
   }
   return null;
 }
@@ -711,7 +756,8 @@ async function confirmSale() {
     await applyInventoryFromSale(payload.itemsJson);
     await Promise.all([refreshSales(), refreshProducts()]);
     state.ui.lastSaleId = payload.id;
-    refs.confirmationText.textContent = `Venta ${payload.id} registrada por ${formatCOP(payload.total)} con pago ${payload.metodoPago}.`;
+    const debtText = payload.saldoPendiente > 0 ? ` Saldo pendiente: ${formatCOP(payload.saldoPendiente)}.` : "";
+    refs.confirmationText.textContent = `Venta ${payload.id} registrada por ${formatCOP(payload.total)} con pago ${payload.metodoPago}.${debtText}`;
     resetCurrentSale();
     showView("saleConfirmationView");
   } catch (error) {
@@ -748,6 +794,7 @@ function resetCurrentSale() {
   refs.cashReceived.value = "";
   refs.saleClientSelect.value = "";
   refs.paymentMethod.value = "Efectivo";
+  refs.debtPending.textContent = formatCOP(0);
   renderSaleView();
 }
 
@@ -766,7 +813,7 @@ function loadSaleIntoEditor(saleId) {
       cantidad: nonNegative(item.cantidad),
       precio: nonNegative(item.precio),
     })),
-    paymentMethod: sale.metodoPago || "Efectivo",
+    paymentMethod: normalizeSalePaymentMethod(sale.metodoPago),
     cashReceived: 0,
     change: 0,
     estado: sale.estado,
@@ -798,7 +845,8 @@ function renderSalesView() {
         <div class="list-item__meta">
           <strong>${escapeHtml(sale.id)}</strong>
           <span class="muted">${formatDateTime(sale.fecha)} · ${escapeHtml(getClientName(sale.clienteId))}</span>
-          <span>${formatCOP(sale.total)}</span>
+          <span>${formatCOP(sale.total)} · ${escapeHtml(sale.metodoPago)}</span>
+          <span class="muted">Saldo pendiente: ${formatCOP(sale.saldoPendiente || 0)}</span>
           <span class="${badgeClass}">${escapeHtml(sale.estado)}</span>
         </div>
         <div class="list-actions">${actionButton}</div>
@@ -845,6 +893,7 @@ function buildInvoiceHtml(sale) {
     <p><strong>Fecha:</strong> ${formatDateTime(sale.fecha)}</p>
     <p><strong>Cliente:</strong> ${escapeHtml(getClientName(sale.clienteId))}</p>
     <p><strong>Método de pago:</strong> ${escapeHtml(sale.metodoPago)}</p>
+    <p><strong>Saldo pendiente:</strong> ${formatCOP(sale.saldoPendiente || 0)}</p>
     <table>
       <thead>
         <tr>
@@ -1548,6 +1597,15 @@ function attachEvents() {
   refs.saleSearchInput.addEventListener("input", renderSaleProducts);
   refs.saleClientSelect.addEventListener("change", () => {
     state.currentSale.clientId = refs.saleClientSelect.value;
+    if (state.currentSale.paymentMethod === "Debe" && isGeneralClient(state.currentSale.clientId)) {
+      state.currentSale.clientId = "";
+      refs.saleClientSelect.value = "";
+      setMessage(refs.saleMessage, "Para ventas con método Debe debes seleccionar o crear un cliente diferente de Cliente General.", "error");
+    }
+  });
+  refs.openQuickClientBtn.addEventListener("click", () => {
+    goToClients();
+    setMessage(refs.clientMessage, "Crea o selecciona un cliente y luego vuelve a la venta para usar el método Debe.", "info");
   });
   refs.paymentMethod.addEventListener("change", updateCashUI);
   refs.cashReceived.addEventListener("input", updateCashChange);

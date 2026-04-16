@@ -156,6 +156,12 @@ select {
   gap: 8px;
 }
 
+.btn-inline {
+  width: auto;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
 .panel__header h3,
 .section-title-row h2,
 .history-panel h3,
